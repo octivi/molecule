@@ -1,0 +1,67 @@
+---
+{% raw -%}
+- name: Destroy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  no_log: "{{ not lookup('env', 'MOLECULE_DEBUG') | bool }}"
+  vars:
+    molecule_file: "{{ lookup('env', 'MOLECULE_FILE') }}"
+    molecule_instance_config: "{{ lookup('env', 'MOLECULE_INSTANCE_CONFIG') }}"
+    molecule_yml: "{{ lookup('file', molecule_file) | molecule_from_yaml }}"
+
+    # Default values if not defined per driver
+    hypervisor_uri: "{{ molecule_yml.driver.options.hypervisor_uri | default('qemu:///system') }}"
+    storage_pool_name: "{{ molecule_yml.driver.options.storage_pool_name | default('molecule') }}"
+
+  tasks:
+    - block:
+        - name: Populate instance config
+          set_fact:
+            instance_conf: "{{ lookup('file', molecule_instance_config) | molecule_from_yaml }}"
+            skip_instances: false
+      rescue:
+        - name: Populate instance config when file missing
+          set_fact:
+            instance_conf: {}
+            skip_instances: true
+
+    - name: Get all running instances
+      virt:
+        command: list_vms
+        uri: "{{ hypervisor_uri }}"
+      register: _virt_running
+
+    - name: Destroy molecule instance(s)
+      virt:
+        name: "{{ item.domain_name }}"
+        state: destroyed
+        uri: "{{ hypervisor_uri }}"
+      when: item.domain_name in _virt_running.list_vms
+      register: server
+      with_items: "{{ instance_conf }}"
+
+    - name: Get all available volumes
+      shell: virsh --quiet --connect {{ hypervisor_uri }} vol-list --pool {{ storage_pool_name }} | awk '{ print $1 }'
+      changed_when: false
+      register: _virt_vols
+
+    - name: Delete storage volume(s)
+      command: virsh --quiet --connect {{ hypervisor_uri }} vol-delete --pool {{ storage_pool_name }} --vol {{ item.domain_name }}
+      when: item.domain_name in _virt_vols.stdout_lines
+      with_items: "{{ instance_conf }}"
+
+    # Mandatory configuration for Molecule to function.
+
+    - name: Populate instance config
+      set_fact:
+        instance_conf: {}
+
+    - name: Dump instance config
+      copy:
+        # NOTE(retr0h): Workaround for Ansible 2.2.
+        #               https://github.com/ansible/ansible/issues/20885
+        content: "{{ instance_conf | to_json | from_json | molecule_to_yaml | molecule_header }}"
+        dest: "{{ molecule_instance_config }}"
+      when: server.changed | bool
+{%- endraw %}

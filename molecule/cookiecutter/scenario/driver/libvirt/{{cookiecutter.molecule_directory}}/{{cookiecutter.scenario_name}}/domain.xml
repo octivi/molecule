@@ -1,0 +1,47 @@
+{% raw -%}
+<!-- # Molecule managed -->
+<domain type='kvm'>
+  <name>{{ item.1.domain_name }}</name>
+  <memory unit='MiB'>{{ item.0.memory_mb | default(memory_mb) }}</memory>
+  <vcpu>{{ item.0.cpu_count | default (cpu_count) }}</vcpu>
+  <os>
+    <type arch='x86_64' machine='pc-i440fx-2.8'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode='host-passthrough' />
+  <clock offset='utc'>
+    <timer name='rtc' tickpolicy='catchup'/>
+    <timer name='pit' tickpolicy='delay'/>
+    <timer name='hpet' present='no'/>
+  </clock>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>destroy</on_reboot>
+  <on_crash>destroy</on_crash>
+  <pm>
+    <suspend-to-mem enabled='no'/>
+    <suspend-to-disk enabled='no'/>
+  </pm>
+  <devices>
+    <emulator>/usr/bin/kvm</emulator>
+    <disk type='volume' device='disk'>
+      <driver name='qemu' type='{{ storage_volume_format }}'/>
+      <source pool='{{ storage_pool_name }}' volume='{{ item.1.domain_name }}'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <interface type='network'>
+      <source network='{{ network_name }}'/>
+      <model type='virtio'/>
+    </interface>
+    <graphics type='vnc' autoport='yes' keymap='pl'>
+      <listen type='address'/>
+    </graphics>
+    <rng model='virtio'>
+      <backend model='random'>/dev/random</backend>
+    </rng>
+  </devices>
+</domain>
+{%- endraw %}

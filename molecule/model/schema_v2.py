@@ -67,6 +67,7 @@ base_schema = {
                     'docker',
                     'ec2',
                     'gce',
+                    'libvirt',
                     'lxc',
                     'lxd',
                     'openstack',

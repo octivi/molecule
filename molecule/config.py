@@ -36,6 +36,7 @@ from molecule.driver import delegated
 from molecule.driver import docker
 from molecule.driver import ec2
 from molecule.driver import gce
+from molecule.driver import libvirt
 from molecule.driver import lxc
 from molecule.driver import lxd
 from molecule.driver import openstack
@@ -145,6 +146,8 @@ class Config(object):
             driver = ec2.EC2(self)
         elif driver_name == 'gce':
             driver = gce.GCE(self)
+        elif driver_name == 'libvirt':
+            driver = libvirt.Libvirt(self)
         elif driver_name == 'lxc':
             driver = lxc.LXC(self)
         elif driver_name == 'lxd':
@@ -409,6 +412,7 @@ def molecule_drivers():
         gce.GCE(None).name,
         lxc.LXC(None).name,
         lxd.LXD(None).name,
+        libvirt.Libvirt(None).name,
         openstack.Openstack(None).name,
         vagrant.Vagrant(None).name,
     ]

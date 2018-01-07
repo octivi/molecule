@@ -1,0 +1,121 @@
+---
+{% raw -%}
+- name: Create
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  no_log: "{{ not lookup('env', 'MOLECULE_DEBUG') | bool }}"
+  vars:
+    molecule_file: "{{ lookup('env', 'MOLECULE_FILE') }}"
+    molecule_instance_config: "{{ lookup('env', 'MOLECULE_INSTANCE_CONFIG') }}"
+    molecule_scenario_directory: "{{ lookup('env', 'MOLECULE_SCENARIO_DIRECTORY') }}"
+    molecule_ephemeral_directory: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
+    molecule_yml: "{{ lookup('file', molecule_file) | molecule_from_yaml }}"
+
+    # Default values if not defined per driver
+    hypervisor_uri: "{{ molecule_yml.driver.options.hypervisor_uri | default('qemu:///system') }}"
+    domain_xml_template: "{{ molecule_yml.driver.options.domain_xml_template | default(molecule_scenario_directory + '/domain.xml') }}"
+    domain_name_prefix: "{{ molecule_yml.driver.options.domain_name_prefix | default('molecule-') }}"
+    storage_pool_name: "{{ molecule_yml.driver.options.storage_pool_name | default('molecule') }}"
+    storage_volume_format: "{{ molecule_yml.driver.options.storage_volume_format | default('qcow2') }}"
+    network_name: "{{ molecule_yml.driver.options.network_name | default('molecule') }}"
+    ssh_user: "{{ molecule_yml.driver.options.ssh_user | default('root') }}"
+    ssh_port: "{{ molecule_yml.driver.options.ssh_port | default('22') }}"
+    ssh_private_key_path: "{{ molecule_yml.driver.options.ssh_private_key_path | default(molecule_scenario_directory + '/ssh_key') }}"
+
+    # Default values if not defined per instance
+    cpu_count: 1
+    memory_mb: 512
+    disk_mb: 2048
+
+  tasks:
+    - name: Generate instance(s) random name(s)
+      set_fact:
+        _random_name: {
+          'domain_name': "{{ domain_name_prefix + (lookup('pipe', 'date +%s-%N')) }}"
+        }
+      register: _platforms_domains_names_dict
+      with_items: "{{ molecule_yml.platforms }}"
+
+    - name: Convert instance(s) random name(s) dict to a list
+      set_fact:
+        platforms_domains_names: "{{ _platforms_domains_names_dict.results | map(attribute='ansible_facts._random_name') | list }}"
+
+    # BUG: Ansible's virt module http://docs.ansible.com/ansible/latest/virt_module.html does not allow creating transient domains
+    # https://github.com/ansible/ansible/blob/devel/lib/ansible/modules/cloud/misc/virt.py#L209
+    # https://libvirt.org/docs/libvirt-appdev-guide-python/en-US/html/libvirt_application_development_guide_using_python-Guest_Domains-Lifecycle_Control.html#libvirt_application_development_guide_using_python-Guest_Domains-Lifecycle-Provisioning_and_Starting
+    # https://bitbucket.org/octivi/ansible-playbooks/issues/45/upstream-ansible-virt-nie-mo-na-stworzy
+    - name: Create domain XML for instance(s)
+      template:
+        src: "{{ domain_xml_template }}"
+        dest: "{{ molecule_ephemeral_directory }}/domain_{{ item.0.name | regex_replace('[^a-zA-Z0-9_]', '_') }}.xml"
+      with_together:
+        - "{{ molecule_yml.platforms }}"
+        - "{{ platforms_domains_names }}"
+      register: platforms_domains_xml
+
+    - name: Create storage volume(s)
+      command: virsh --quiet --connect {{ hypervisor_uri }} vol-create-as --pool {{ storage_pool_name }} --name {{ item.1.domain_name }} --capacity {{ (item.0.disk_mb | default(disk_mb)) | string + "MiB" }} --format {{ storage_volume_format }} --backing-vol {{ item.0.image }} --backing-vol-format {{ storage_volume_format }}
+      with_together:
+        - "{{ molecule_yml.platforms }}"
+        - "{{ platforms_domains_names }}"
+
+    - name: Create molecule instance(s)
+      command: virsh --quiet --connect {{ hypervisor_uri }} create --file {{ item.dest }}
+      with_items: "{{ platforms_domains_xml.results }}"
+      register: server
+
+    - name: Wait for DHCP lease info propagation
+      wait_for:
+        timeout: 20
+
+    - name: Get molecule instance(s) IP address(es)
+      shell: virsh --quiet --connect {{ hypervisor_uri }} domifaddr {{ item.domain_name }} | awk -F'[ /]+' '{if (NR>0 && $5) print $5}'
+      register: server_ip_addresses
+      until: server_ip_addresses.stdout.find(".") != -1
+      retries: 3
+      delay: 10
+      changed_when: false
+      with_items: "{{ platforms_domains_names }}"
+
+    # Mandatory configuration for Molecule to function.
+
+    - name: Populate instance config dict
+      set_fact:
+        instance_conf_dict: {
+          'instance': "{{ item.0.name }}",
+          'address': "{{ item.1.stdout }}",
+          'user': "{{ ssh_user }}",
+          'port': "{{ ssh_port }}",
+          'identity_file': "{{ ssh_private_key_path }}",
+          'domain_name': "{{ item.2.domain_name }}"
+        }
+      with_together:
+        - "{{ molecule_yml.platforms }}"
+        - "{{ server_ip_addresses.results }}"
+        - "{{ platforms_domains_names }}"
+      register: instance_config_dict
+      when: server.changed | bool
+
+    - name: Convert instance config dict to a list
+      set_fact:
+        instance_conf: "{{ instance_config_dict.results | map(attribute='ansible_facts.instance_conf_dict') | list }}"
+      when: server.changed | bool
+
+    - name: Dump instance config
+      copy:
+        # NOTE(retr0h): Workaround for Ansible 2.2.
+        #               https://github.com/ansible/ansible/issues/20885
+        content: "{{ instance_conf | to_json | from_json | molecule_to_yaml | molecule_header }}"
+        dest: "{{ molecule_instance_config }}"
+      when: server.changed | bool
+
+    - name: Wait for SSH
+      wait_for:
+        port: "{{ ssh_port }}"
+        host: "{{ item.address }}"
+        search_regex: SSH
+        delay: 0
+        timeout: 320
+      with_items: "{{ lookup('file', molecule_instance_config) | molecule_from_yaml }}"
+{%- endraw %}
