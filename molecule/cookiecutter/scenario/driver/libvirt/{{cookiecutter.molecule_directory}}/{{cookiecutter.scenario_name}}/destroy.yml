@@ -27,17 +27,12 @@
             skip_instances: true
 
     - name: Get all running instances
-      virt:
-        command: list_vms
-        uri: "{{ hypervisor_uri }}"
+      command: virsh --quiet --connect {{ hypervisor_uri }} list --name
       register: _virt_running
 
     - name: Destroy molecule instance(s)
-      virt:
-        name: "{{ item.domain_name }}"
-        state: destroyed
-        uri: "{{ hypervisor_uri }}"
-      when: item.domain_name in _virt_running.list_vms
+      command: virsh --quiet --connect {{ hypervisor_uri }} destroy {{ item.domain_name }}
+      when: item.domain_name in _virt_running.stdout_lines
       register: server
       with_items: "{{ instance_conf }}"
 

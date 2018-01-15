@@ -7,15 +7,12 @@ Requirements
 
 * `libvirtd`_ daemon (local or remote) with configured network and storage pool
 * `virsh`_ binary (in Debian libvirt-clients package)
-* `libvirt-python`_
 
   .. _`Libvirtd`: https://libvirt.org
 
   .. _`virsh`: https://libvirt.org/sources/virshcmdref/html/
 
   .. _`libvirt-clients`: http://packages.debian.org/libvirt-clients
-
-  .. _`libvirt-python`: https://pypi.python.org/pypi/libvirt-python
 
 Install
 =======
@@ -24,7 +21,6 @@ Install required software on local node
 
 .. code-block:: bash
 
-  $ sudo pip install libvirt-python
   $ sudo apt-get install libvirt-clients
 
 Install required software on remote node (e.g. remote-ci-server.local), create directory for
