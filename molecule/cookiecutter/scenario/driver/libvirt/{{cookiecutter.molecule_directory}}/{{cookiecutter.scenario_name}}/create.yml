@@ -16,6 +16,7 @@
     hypervisor_uri: "{{ molecule_yml.driver.options.hypervisor_uri | default('qemu:///system') }}"
     domain_xml_template: "{{ molecule_yml.driver.options.domain_xml_template | default(molecule_scenario_directory + '/domain.xml') }}"
     domain_name_prefix: "{{ molecule_yml.driver.options.domain_name_prefix | default('molecule-') }}"
+    domain_boot_time: "{{ molecule_yml.driver.options.domain_boot_time | default('5') }}"
     storage_pool_name: "{{ molecule_yml.driver.options.storage_pool_name | default('molecule') }}"
     storage_volume_format: "{{ molecule_yml.driver.options.storage_volume_format | default('qcow2') }}"
     network_name: "{{ molecule_yml.driver.options.network_name | default('molecule') }}"
@@ -65,9 +66,9 @@
       with_items: "{{ platforms_domains_xml.results }}"
       register: server
 
-    - name: Wait for DHCP lease info propagation
+    - name: Wait for instance(s)
       wait_for:
-        timeout: 20
+        timeout: "{{ domain_boot_time }}"
 
     - name: Get molecule instance(s) IP address(es)
       shell: virsh --quiet --connect {{ hypervisor_uri }} domifaddr {{ item.domain_name }} | awk -F'[ /]+' '{if (NR>0 && $5) print $5}'
